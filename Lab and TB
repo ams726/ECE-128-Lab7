@@ -1,0 +1,280 @@
+// Debouncer Module
+module debouncer(
+    input RAW,
+    input CLK,
+    output reg CLEAN
+);
+
+    // 3-bit counter to filter out noise
+    reg [2:0] counter;
+    
+    // Terminal count flag to indicate debounce period is complete
+    wire debounce_complete = (counter == 3'b111);
+
+    // Counter logic
+    always @(posedge CLK) begin
+        if (~RAW)
+            counter <= 3'b000;  // Reset counter if RAW signal goes low
+        else if (!debounce_complete)
+            counter <= counter + 1;  // Increment counter until max value
+    end
+
+    // Output logic for CLEAN signal
+    always @(posedge CLK) begin
+        if (~RAW)
+            CLEAN <= 1'b0;  // Reset CLEAN if RAW goes low
+        else if (debounce_complete)
+            CLEAN <= 1'b1;  // Set CLEAN when debounce period is complete
+    end
+
+endmodule
+
+// Debouncer Testbench (TB)
+module debouncing_tb;
+    reg RAW;
+    reg CLK;
+    wire CLEAN;
+
+    // Instantiate the debouncer module
+    debouncer uut (
+        .RAW(RAW),
+        .CLK(CLK),
+        .CLEAN(CLEAN)
+    );
+
+    // Clock generation (100 MHz clock)
+    initial begin
+        CLK = 0;
+        forever #5 CLK = ~CLK;  // Toggle every 5 ns -> 100 MHz clock
+    end
+
+    // Test sequence for RAW with simulated noise
+    initial begin
+        RAW = 0;
+        
+        // Apply stable low, then high with noise, then stable high
+        #20 RAW = 1;    // Start stable high
+        
+        // Simulate noise on RAW signal
+        #15 RAW = 0;
+        #10 RAW = 1;
+        #10 RAW = 0;
+        #10 RAW = 1;
+        
+        // Hold RAW high to allow debouncer to settle
+        #100 RAW = 1;
+
+        // Bring RAW low and see how CLEAN responds
+        #20 RAW = 0;
+
+        // Final stable high to verify debounce behavior again
+        #100 RAW = 1;
+
+        #100 $finish;
+    end
+
+    // Monitor outputs for debugging
+    initial begin
+        $monitor("Time=%0t | RAW=%b | CLEAN=%b | Counter=%b",
+                 $time, RAW, CLEAN, uut.counter);
+    end
+endmodule
+
+// Mealy "1101" Sequence Detector
+module mealy_1101_detector(
+    input clk,
+    input reset_n,
+    input x,
+    output y
+);
+
+    reg [1:0] state_reg, state_next;
+    localparam s0 = 0;
+    localparam s1 = 1;
+    localparam s2 = 2;
+    localparam s3 = 3;
+
+    // State register
+    always @(posedge clk or negedge reset_n)
+    begin
+        if (!reset_n)
+            state_reg <= s0;
+        else
+            state_reg <= state_next;
+    end
+
+    // Next state logic based on "1101" sequence
+    always @(*)
+    begin
+        case (state_reg)
+            s0: if (x)
+                    state_next = s1;
+                else
+                    state_next = s0;
+            s1: if (x)
+                    state_next = s2;
+                else
+                    state_next = s0;
+            s2: if (x)
+                    state_next = s2;   
+                else
+                    state_next = s3; 
+            s3: if (x)
+                    state_next = s1;   
+                else
+                    state_next = s0;  
+            default: state_next = s0;
+        endcase
+    end
+
+    // Output logic for Mealy detector
+    assign y = (state_reg == s3) && x;
+
+endmodule
+
+// Mealy "1101" Sequence Detector Testbench (TB)
+module x_1101_detector_tb();
+
+    reg clk, reset_n, x;
+    wire y_mealy;
+
+    // Instantiate the Mealy detector
+    mealy_1101_detector uut1(
+        .clk(clk),
+        .reset_n(reset_n),
+        .x(x),
+        .y(y_mealy)
+    );
+
+    // Generating a clock signal
+    localparam T = 10;
+    always begin
+        clk = 1'b0;
+        #(T/2);
+        clk = 1'b1;
+        #(T/2);
+    end
+
+    initial begin
+        reset_n = 1'b0;
+        x = 1'b0;
+        @(negedge clk);
+        reset_n = 1'b1;
+
+        // Apply input pattern for "1101" sequence detection
+        x = 1'b1;
+        #T x = 1'b1;
+        #T x = 1'b1;
+        #T x = 1'b0;
+        #T x = 1'b1;
+        #T x = 1'b1;
+        #T x = 1'b0;
+        #T x = 1'b1;
+        #T $finish;
+    end
+endmodule
+
+// Moore "1100" Sequence Detector
+module moore_1100_detector(
+    input clk,
+    input reset_n,
+    input x,
+    output y
+);
+
+    reg [2:0] state_reg, state_next;
+    localparam s0 = 0;
+    localparam s1 = 1;
+    localparam s2 = 2;
+    localparam s3 = 3;
+    localparam s4 = 4;
+
+    // State register
+    always @(posedge clk or negedge reset_n)
+    begin
+        if (!reset_n)
+            state_reg <= s0;
+        else
+            state_reg <= state_next;
+    end
+
+    // Next state logic based on "1100" sequence
+    always @(*)
+    begin
+        case (state_reg)
+            s0: if (x)
+                    state_next = s1;
+                else
+                    state_next = s0;
+            s1: if (x)
+                    state_next = s2;
+                else
+                    state_next = s0;
+            s2: if (x)
+                    state_next = s2;
+                else
+                    state_next = s3;
+            s3: if (x)
+                    state_next = s1;
+                else
+                    state_next = s4;
+            s4: if (x)
+                    state_next = s1;
+                else
+                    state_next = s0;
+            default: state_next = s0;
+        endcase
+    end
+
+    // Output logic for Moore detector
+    assign y = (state_reg == s4);
+
+endmodule
+
+// Moore "1100" Sequence Detector Testbench (TB)
+module moore_1100_detector_tb();
+
+    reg clk, reset_n, x;
+    wire y_moore;
+
+    // Instantiate the Moore detector
+    moore_1100_detector uut1(
+        .clk(clk),
+        .reset_n(reset_n),
+        .x(x),
+        .y(y_moore)
+    );
+
+    // Generating a clock signal
+    localparam T = 10;
+    always begin
+        clk = 1'b0;
+        #(T/2);
+        clk = 1'b1;
+        #(T/2);
+    end
+
+    initial begin
+        $monitor("Time=%0t : x=%b, state_reg=%b, y=%b", $time, x, uut1.state_reg, y_moore);
+
+        reset_n = 1'b0;
+        x = 1'b0;
+        @(negedge clk);
+        reset_n = 1'b1;
+
+        // Apply input pattern for "1100" sequence detection
+        #T x = 1'b1;
+        #T x = 1'b1;
+        #T x = 1'b0;
+        #T x = 1'b0;
+
+        #T x = 1'b1;
+        #T x = 1'b0;
+        #T x = 1'b1;
+        #T x = 1'b1;
+        #T x = 1'b0;
+        #T x = 1'b0;
+
+        #T $finish;
+    end
+endmodule
